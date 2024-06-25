@@ -189,7 +189,6 @@ void Router::add_endpoint(
       ep = std::make_unique<MAVConnEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
     }
 
-    // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
     RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
 
     this->endpoints[id] = std::move(ep);
@@ -213,7 +212,6 @@ void Router::del_endpoint(
     RCLCPP_INFO(lg, "Requested to del endpoint id: %d", request->id);
     auto it = this->endpoints.find(request->id);
     if (it != this->endpoints.end() ) {
-      this->diagnostic_updater.removeByName(it->second->diag_name());
       this->endpoints.erase(it);
       response->successful = true;
     }
@@ -227,7 +225,6 @@ void Router::del_endpoint(
     if (it->second->get_url() == request->url &&
       it->second->get_link_type() == static_cast<Endpoint::Type>( request->type))
     {
-      this->diagnostic_updater.removeByName(it->second->diag_name());
       this->endpoints.erase(it);
       response->successful = true;
       return;
@@ -413,7 +410,26 @@ void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing
   nh->route_message(*this, msg, framing);
 }
 
-std::string Endpoint::diag_name()
+Endpoint::Endpoint(Router * router, uint32_t id, Type link_type, std::string url)
+: router {router}
+, id {id}
+, link_type {link_type}
+, url {std::move(url)}
+{
+  const addr_t broadcast_addr = 0;
+
+  // Accept broadcasts by default
+  remote_addrs.emplace(broadcast_addr);
+
+  this->router->diagnostic_updater.add(diag_name(), std::bind(&Endpoint::diag_run, this, _1));
+}
+
+Endpoint::~Endpoint()
+{
+  this->router->diagnostic_updater.removeByName(diag_name());
+}
+
+std::string Endpoint::diag_name() const
 {
   return utils::format("endpoint %d: %s", this->id, this->url.c_str());
 }

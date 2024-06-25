@@ -79,17 +79,7 @@ public:
   };
 
 protected:
-  explicit Endpoint(Router * router, uint32_t id, Type link_type, std::string url)
-  : router {router}
-  , id {id}
-  , link_type {link_type}
-  , url {url}
-  {
-    const addr_t broadcast_addr = 0;
-
-    // Accept broadcasts by default
-    remote_addrs.emplace(broadcast_addr);
-  }
+  explicit Endpoint(Router * router, uint32_t id, Type link_type, std::string url);
 
 public:
   /**
@@ -97,7 +87,7 @@ public:
    *
    * Virtual destructor is required, because @a Router used polymorphic pointers to @a Endpoint.
    */
-  virtual ~Endpoint() = default;
+  virtual ~Endpoint();
 
   virtual bool is_open() const = 0;
   virtual void reconnect() = 0;
@@ -106,9 +96,6 @@ public:
     const mavlink_message_t * msg, const Framing framing = Framing::ok,
     id_t src_id = 0) = 0;
   virtual void recv_message(const mavlink_message_t * msg, const Framing framing = Framing::ok);
-
-  virtual std::string diag_name();
-  virtual void diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat) = 0;
 
   Type get_link_type() const noexcept {
     return link_type;
@@ -135,6 +122,10 @@ protected:
   std::string const url;                     // url to open that endpoint
   std::set<addr_t> remote_addrs;       // remotes that we heard there
   std::set<addr_t> stale_addrs;        // temporary storage for stale remote addrs
+
+private:
+  std::string diag_name() const;
+  virtual void diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat) = 0;
 };
 
 /**
