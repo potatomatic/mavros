@@ -96,17 +96,13 @@ public:
         std::set<addr_t> remotes) {
         auto ep = std::make_shared<MockEndpoint>();
 
-        ep->parent = router;
+        ep->router = router.get();
         ep->id = id;
         ep->link_type = type;
         ep->url = url;
         ep->remote_addrs = remotes;
 
         router->endpoints[id] = ep;
-
-        // XXX(vooon): another strange thing: mock reports about not freed mock objects.
-        //             let's silence it for now.
-        testing::Mock::AllowLeak(&(*ep));
       };
 
     router->id_counter = 1000;
