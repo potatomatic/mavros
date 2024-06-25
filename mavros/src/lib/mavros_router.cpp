@@ -84,14 +84,8 @@ Router::Router(
 
 Router::~Router()
 {
-  std::clog << "~Router()" << std::endl;
-  std::clog << "Clear " << endpoints.size() << " endpoints" << std::endl;
-
-  for (auto const& ep : endpoints)
-  {
-    std::clog << "id=" << ep.first << /*", use_count=" << ep.second.use_count() <<*/ std::endl;
-  }
-
+  // Clear the endpoints before the Router data members get destroyed.
+  // This ensures that threads created by endpoints are stopped before the Router parts get destroyed.
   endpoints.clear();
 }
 
@@ -443,7 +437,6 @@ MAVConnEndpoint::MAVConnEndpoint(Router * router, uint32_t id, Type link_type, s
 
 MAVConnEndpoint::~MAVConnEndpoint()
 {
-  std::clog << "~MAVConnEndpoint()" << std::endl;
   close();
 }
 
