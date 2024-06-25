@@ -52,7 +52,7 @@ class MockEndpoint : public Endpoint
 {
 public:
   MOCK_METHOD0(is_open, bool());
-  MOCK_METHOD0(open, std::pair<bool, std::string>());
+  MOCK_METHOD0(open, void());
   MOCK_METHOD0(close, void());
 
   MOCK_METHOD3(
