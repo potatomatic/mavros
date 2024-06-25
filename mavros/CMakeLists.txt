@@ -61,7 +61,6 @@ find_package(trajectory_msgs REQUIRED)
 include_directories(
   ${mavlink_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
-  ${GeographicLib_INCLUDE_DIRS}
 )
 
 ## Check if the datasets are installed
@@ -123,7 +122,9 @@ target_include_directories(mavros PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(mavros ${GeographicLib_LIBRARIES})
+target_link_libraries(mavros
+  GeographicLib::GeographicLib
+)
 rclcpp_components_register_nodes(mavros "mavros::router::Router" "mavros::uas::UAS")
 
 add_library(mavros_plugins SHARED
@@ -283,6 +284,8 @@ ament_export_dependencies(
   tf2_ros
   diagnostic_updater
   tf2_eigen
+  GeographicLib
+  mavlink
 )
 ament_export_targets(export_${PROJECT_NAME})
 ament_package()
