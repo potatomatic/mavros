@@ -59,11 +59,6 @@ find_package(std_srvs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 
 include_directories(
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-include_directories(
   ${mavlink_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${GeographicLib_INCLUDE_DIRS}
@@ -123,6 +118,10 @@ ament_target_dependencies(mavros
   tf2_ros
   tf2_eigen
   Eigen3
+)
+target_include_directories(mavros PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(mavros ${GeographicLib_LIBRARIES})
 rclcpp_components_register_nodes(mavros "mavros::router::Router" "mavros::uas::UAS")
@@ -278,9 +277,14 @@ endif()
 #ament_export_dependencies(console_bridge)
 ament_export_include_directories(include)
 ament_export_libraries(mavros)
-ament_export_dependencies(eigen3_cmake_module)
-ament_export_dependencies(Eigen3)
-#ament_export_targets(mavros_node)
+ament_export_dependencies(
+  eigen3_cmake_module
+  Eigen3
+  tf2_ros
+  diagnostic_updater
+  tf2_eigen
+)
+ament_export_targets(export_${PROJECT_NAME})
 ament_package()
 
 # vim: ts=2 sw=2 et:
