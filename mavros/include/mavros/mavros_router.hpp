@@ -91,6 +91,13 @@ public:
     remote_addrs.emplace(broadcast_addr);
   }
 
+  /**
+   * @brief Destructor.
+   *
+   * Virtual destructor is necessary, because @a Router used polymorphic pointers to @a Endpoint.
+   */
+  virtual ~Endpoint() = default;
+
   Router * router = nullptr;
 
   uint32_t id;                         // id of the endpoint
@@ -147,7 +154,9 @@ public:
   Router(Router const &) = delete;
   Router(Router &&) = delete;
 
-  void route_message(Endpoint::SharedPtr src, const mavlink_message_t * msg, const Framing framing);
+  ~Router();
+
+  void route_message(Endpoint& src, const mavlink_message_t * msg, const Framing framing);
 
 private:
   friend class Endpoint;
@@ -158,7 +167,7 @@ private:
   std::shared_timed_mutex mu;
 
   // map stores all routing endpoints
-  std::unordered_map<id_t, Endpoint::SharedPtr> endpoints;
+  std::unordered_map<id_t, Endpoint::UniquePtr> endpoints;
 
   std::atomic<size_t> stat_msg_routed;      //!< amount of messages came to route_messages()
   std::atomic<size_t> stat_msg_sent;        //!< amount of messages sent
@@ -206,10 +215,7 @@ public:
     stat_last_drop_count(0)
   {}
 
-  ~MAVConnEndpoint()
-  {
-    close();
-  }
+  ~MAVConnEndpoint();
 
   mavconn::MAVConnInterface::Ptr link;       // connection
   size_t stat_last_drop_count;

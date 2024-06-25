@@ -82,8 +82,21 @@ Router::Router(
   RCLCPP_INFO(get_logger(), "MAVROS Router started");
 }
 
+Router::~Router()
+{
+  std::clog << "~Router()" << std::endl;
+  std::clog << "Clear " << endpoints.size() << " endpoints" << std::endl;
+
+  for (auto const& ep : endpoints)
+  {
+    std::clog << "id=" << ep.first << /*", use_count=" << ep.second.use_count() <<*/ std::endl;
+  }
+
+  endpoints.clear();
+}
+
 void Router::route_message(
-  Endpoint::SharedPtr src, const mavlink_message_t * msg,
+  Endpoint& src, const mavlink_message_t * msg,
   const Framing framing)
 {
   shared_lock lock(mu);
@@ -106,10 +119,10 @@ retry:
   for (auto & kv : this->endpoints) {
     auto & dest = kv.second;
 
-    if (src->id == dest->id) {
+    if (src.id == dest->id) {
       continue;     // do not echo message
     }
-    if (src->link_type == dest->link_type) {
+    if (src.link_type == dest->link_type) {
       continue;     // drop messages between same type FCU/GCS/UAS
     }
 
@@ -119,7 +132,7 @@ retry:
     bool has_target = dest->remote_addrs.find(target_addr) != dest->remote_addrs.end();
 
     if (has_target) {
-      dest->send_message(msg, framing, src->id);
+      dest->send_message(msg, framing, src.id);
       sent_cnt++;
     }
   }
@@ -167,11 +180,11 @@ void Router::add_endpoint(
 
   id_t id = id_counter.fetch_add(1);
 
-  Endpoint::SharedPtr ep;
+  Endpoint::UniquePtr ep;
   if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
-    ep = std::make_shared<ROSEndpoint>();
+    ep = std::make_unique<ROSEndpoint>();
   } else {
-    ep = std::make_shared<MAVConnEndpoint>();
+    ep = std::make_unique<MAVConnEndpoint>();
   }
 
   ep->router = this;
@@ -179,8 +192,7 @@ void Router::add_endpoint(
   ep->link_type = static_cast<Endpoint::Type>(request->type);
   ep->url = request->url;
 
-  this->endpoints[id] = ep;
-  this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
+  // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
   RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
 
   auto result = ep->open();
@@ -190,6 +202,7 @@ void Router::add_endpoint(
     RCLCPP_ERROR(lg, "link[%d] open failed: %s", id, result.second.c_str());
   }
 
+  this->endpoints[id] = std::move(ep);
   response->successful = result.first;
   response->reason = result.second;
   response->id = id;
@@ -402,12 +415,18 @@ void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing
       msg->compid);
   }
 
-  nh->route_message(shared_from_this(), msg, framing);
+  nh->route_message(*this, msg, framing);
 }
 
 std::string Endpoint::diag_name()
 {
   return utils::format("endpoint %d: %s", this->id, this->url.c_str());
+}
+
+MAVConnEndpoint::~MAVConnEndpoint()
+{
+  std::clog << "~MAVConnEndpoint()" << std::endl;
+  close();
 }
 
 bool MAVConnEndpoint::is_open()
@@ -425,7 +444,7 @@ std::pair<bool, std::string> MAVConnEndpoint::open()
     this->link = mavconn::MAVConnInterface::open_url(
       this->url, 1, mavconn::MAV_COMP_ID_UDP_BRIDGE, std::bind(
         &MAVConnEndpoint::recv_message,
-        shared_from_this(), _1, _2));
+        this, _1, _2));
   } catch (mavconn::DeviceError & ex) {
     return {false, ex.what()};
   }

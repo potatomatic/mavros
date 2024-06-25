@@ -51,8 +51,6 @@ using LT = Endpoint::Type;
 class MockEndpoint : public Endpoint
 {
 public:
-  using SharedPtr = std::shared_ptr<MockEndpoint>;
-
   MOCK_METHOD0(is_open, bool());
   MOCK_METHOD0(open, std::pair<bool, std::string>());
   MOCK_METHOD0(close, void());
@@ -94,7 +92,7 @@ public:
     auto make_and_add_mock_endpoint =
       [router](id_t id, const std::string & url, LT type,
         std::set<addr_t> remotes) {
-        auto ep = std::make_shared<MockEndpoint>();
+        auto ep = std::make_unique<MockEndpoint>();
 
         ep->router = router.get();
         ep->id = id;
@@ -102,7 +100,7 @@ public:
         ep->url = url;
         ep->remote_addrs = remotes;
 
-        router->endpoints[id] = ep;
+        router->endpoints[id] = std::move(ep);
       };
 
     router->id_counter = 1000;
@@ -116,13 +114,12 @@ public:
     return router;
   }
 
-  MockEndpoint::SharedPtr getep(Router::SharedPtr router, id_t id)
+  auto getep(Router::SharedPtr router, id_t id)
   {
-    auto ep = router->endpoints[id];
-    return std::static_pointer_cast<MockEndpoint>(ep);
+    return static_cast<MockEndpoint *>(router->endpoints[id].get());
   }
 
-  std::unordered_map<id_t, Endpoint::SharedPtr> & get_endpoints(Router::SharedPtr router)
+  auto & get_endpoints(Router::SharedPtr router)
   {
     return router->endpoints;
   }
@@ -198,7 +195,7 @@ TEST_F(TestRouter, set_parameter)
     {"/uas2", LT::uas},
   };
 
-  auto endpoints = get_endpoints(router);
+  auto& endpoints = get_endpoints(router);
 
   EXPECT_EQ(size_t(6), endpoints.size());
   for (auto & kv : endpoints) {
@@ -248,7 +245,7 @@ TEST_F(TestRouter, route_fcu_broadcast)
   EXPECT_CALL(*gcs1, send_message(_, fr, _));
   EXPECT_CALL(*gcs2, send_message(_, fr, _));
 
-  router->route_message(fcu1, &hbmsg, fr);
+  router->route_message(*fcu1, &hbmsg, fr);
 
   VERIFY_EPS();
 }
@@ -270,7 +267,7 @@ TEST_F(TestRouter, route_uas_broadcast)
   EXPECT_CALL(*gcs1, send_message(_, fr, _));
   EXPECT_CALL(*gcs2, send_message(_, fr, _));
 
-  router->route_message(uas1, &hbmsg, fr);
+  router->route_message(*uas1, &hbmsg, fr);
 
   VERIFY_EPS();
 }
@@ -292,7 +289,7 @@ TEST_F(TestRouter, route_gcs_broadcast)
   EXPECT_CALL(*gcs1, send_message(_, fr, _)).Times(0);
   EXPECT_CALL(*gcs2, send_message(_, fr, _)).Times(0);
 
-  router->route_message(gcs1, &hbmsg, fr);
+  router->route_message(*gcs1, &hbmsg, fr);
 
   VERIFY_EPS();
 }
@@ -321,7 +318,7 @@ TEST_F(TestRouter, route_targeted_one_system)
   EXPECT_CALL(*gcs1, send_message(_, fr, _)).Times(0);
   EXPECT_CALL(*gcs2, send_message(_, fr, _)).Times(0);
 
-  router->route_message(fcu1, &smmsg, fr);
+  router->route_message(*fcu1, &smmsg, fr);
 
   VERIFY_EPS();
 }
@@ -350,7 +347,7 @@ TEST_F(TestRouter, route_targeted_two_system)
   EXPECT_CALL(*gcs1, send_message(_, fr, _)).Times(1);
   EXPECT_CALL(*gcs2, send_message(_, fr, _)).Times(1);
 
-  router->route_message(uas1, &smmsg, fr);
+  router->route_message(*uas1, &smmsg, fr);
 
   VERIFY_EPS();
 }
@@ -377,7 +374,7 @@ TEST_F(TestRouter, route_targeted_system_component)
   EXPECT_CALL(*gcs1, send_message(_, fr, _)).Times(0);
   EXPECT_CALL(*gcs2, send_message(_, fr, _)).Times(0);
 
-  router->route_message(fcu1, &pmsg, fr);
+  router->route_message(*fcu1, &pmsg, fr);
 
   VERIFY_EPS();
 }
