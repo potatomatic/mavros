@@ -143,7 +143,7 @@ public:
 
   void add_plugin(MockUAS::SharedPtr p, const std::string & pl_name)
   {
-    p->add_plugin(pl_name);
+    p->add_plugin(pl_name, *p->exec);
   }
 
   void plugin_route(MockUAS::SharedPtr p, const mavlink_message_t * msg, const Framing framing)
