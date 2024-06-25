@@ -135,7 +135,6 @@ ament_target_dependencies(mavros_extras_plugins
   angles
   geometry_msgs
   geographic_msgs
-  mavros
   mavros_msgs
   std_msgs
   std_srvs
@@ -154,6 +153,7 @@ ament_target_dependencies(mavros_extras_plugins
   Eigen3
 )
 target_link_libraries(mavros_extras_plugins
+  mavros::mavros
   yaml-cpp
 )
 pluginlib_export_plugin_description_file(mavros mavros_plugins.xml)
