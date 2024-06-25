@@ -192,9 +192,6 @@ void Router::add_endpoint(
     // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
     RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
 
-    ep->open();
-    RCLCPP_INFO(lg, "link[%d] opened successfully", id);
-
     this->endpoints[id] = std::move(ep);
     response->successful = true;
     response->id = id;
@@ -216,7 +213,6 @@ void Router::del_endpoint(
     RCLCPP_INFO(lg, "Requested to del endpoint id: %d", request->id);
     auto it = this->endpoints.find(request->id);
     if (it != this->endpoints.end() ) {
-      it->second->close();
       this->diagnostic_updater.removeByName(it->second->diag_name());
       this->endpoints.erase(it);
       response->successful = true;
@@ -231,7 +227,6 @@ void Router::del_endpoint(
     if (it->second->get_url() == request->url &&
       it->second->get_link_type() == static_cast<Endpoint::Type>( request->type))
     {
-      it->second->close();
       this->diagnostic_updater.removeByName(it->second->diag_name());
       this->endpoints.erase(it);
       response->successful = true;
@@ -337,7 +332,7 @@ void Router::periodic_reconnect_endpoints()
 
     try
     {
-      p->open();
+      p->reconnect();
       RCLCPP_INFO_STREAM(lg, "link[" << p->get_id() << "] reconnected");
     } catch (std::runtime_error const & e)
     {
@@ -423,19 +418,31 @@ std::string Endpoint::diag_name()
   return utils::format("endpoint %d: %s", this->id, this->url.c_str());
 }
 
+MAVConnEndpoint::MAVConnEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
+: Endpoint {router, id, link_type, url}
+, stat_last_drop_count {0}
+{
+  open();
+}
+
 MAVConnEndpoint::~MAVConnEndpoint()
 {
   std::clog << "~MAVConnEndpoint()" << std::endl;
   close();
 }
 
-bool MAVConnEndpoint::is_open()
+bool MAVConnEndpoint::is_open() const
 {
   if (!this->link) {
     return false;
   }
 
   return this->link->is_open();
+}
+
+void MAVConnEndpoint::reconnect()
+{
+  open();
 }
 
 void MAVConnEndpoint::open()
@@ -514,9 +521,25 @@ void MAVConnEndpoint::diag_run(diagnostic_updater::DiagnosticStatusWrapper & sta
   stat_last_drop_count = mav_status.packet_rx_drop_count;
 }
 
-bool ROSEndpoint::is_open()
+ROSEndpoint::ROSEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
+: Endpoint {router, id, link_type, url}
+{
+  open();
+}
+
+ROSEndpoint::~ROSEndpoint()
+{
+  close();
+}
+
+bool ROSEndpoint::is_open() const
 {
   return this->source && this->sink;
+}
+
+void ROSEndpoint::reconnect()
+{
+  open();
 }
 
 void ROSEndpoint::open()

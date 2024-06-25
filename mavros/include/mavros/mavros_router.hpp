@@ -99,9 +99,8 @@ public:
    */
   virtual ~Endpoint() = default;
 
-  virtual bool is_open() = 0;
-  virtual void open() = 0;
-  virtual void close() = 0;
+  virtual bool is_open() const = 0;
+  virtual void reconnect() = 0;
 
   virtual void send_message(
     const mavlink_message_t * msg, const Framing framing = Framing::ok,
@@ -229,19 +228,17 @@ private:
 class MAVConnEndpoint : public Endpoint
 {
 public:
-  explicit MAVConnEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
-  : Endpoint {router, id, link_type, url}
-  , stat_last_drop_count {0}
-  {}
-
+  explicit MAVConnEndpoint(Router * router, uint32_t id, Type link_type, std::string url);
   ~MAVConnEndpoint();
 
+private:
   mavconn::MAVConnInterface::Ptr link;       // connection
   size_t stat_last_drop_count;
 
-  bool is_open() override;
-  void open() override;
-  void close() override;
+  bool is_open() const override;
+  void reconnect() override;
+  void open();
+  void close();
 
   void send_message(
     const mavlink_message_t * msg, const Framing framing = Framing::ok,
@@ -261,21 +258,17 @@ public:
 class ROSEndpoint : public Endpoint
 {
 public:
-  explicit ROSEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
-  : Endpoint {router, id, link_type, url}
-  {}
+  explicit ROSEndpoint(Router * router, uint32_t id, Type link_type, std::string url);
+  ~ROSEndpoint();
 
-  ~ROSEndpoint()
-  {
-    close();
-  }
-
+private:
   rclcpp::Subscription<mavros_msgs::msg::Mavlink>::SharedPtr sink;       // UAS -> FCU
   rclcpp::Publisher<mavros_msgs::msg::Mavlink>::SharedPtr source;        // FCU -> UAS
 
-  bool is_open() override;
-  void open() override;
-  void close() override;
+  bool is_open() const override;
+  void reconnect() override;
+  void open();
+  void close();
 
   void send_message(
     const mavlink_message_t * msg, const Framing framing = Framing::ok,
