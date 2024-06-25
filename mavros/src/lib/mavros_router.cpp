@@ -125,10 +125,7 @@ void Router::add_endpoint(
     ep = std::make_shared<MAVConnEndpoint>();
   }
 
-  // NOTE(vooon): has type std::shared_ptr<rclcpp::Node>
-  auto shared_this = shared_from_this();
-
-  ep->parent = std::static_pointer_cast<Router>(shared_this);
+  ep->router = this;
   ep->id = id;
   ep->link_type = static_cast<Endpoint::Type>(request->type);
   ep->url = request->url;
@@ -337,7 +334,7 @@ void Router::diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat)
 void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing)
 {
   rcpputils::assert_true(msg, "msg not nullptr");
-  // rcpputils::assert_true(this->parent, "parent not nullptr");
+  // rcpputils::assert_true(this->router, "router not nullptr");
 
   const addr_t sysid_addr = msg->sysid << 8;
   const addr_t sysid_compid_addr = (msg->sysid << 8) | msg->compid;
@@ -350,7 +347,7 @@ void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing
   this->stale_addrs.erase(sysid_addr);
   this->stale_addrs.erase(sysid_compid_addr);
 
-  auto & nh = this->parent;
+  auto & nh = this->router;
   if (sp.second || scp.second) {
     RCLCPP_INFO(
       nh->get_logger(), "link[%d] detected remote address %d.%d", this->id, msg->sysid,
@@ -463,9 +460,9 @@ bool ROSEndpoint::is_open()
 
 std::pair<bool, std::string> ROSEndpoint::open()
 {
-  auto & nh = this->parent;
+  auto & nh = this->router;
   if (!nh) {
-    return {false, "parent not set"};
+    return {false, "router not set"};
   }
 
   try {
@@ -504,12 +501,12 @@ void ROSEndpoint::send_message(const mavlink_message_t * msg, const Framing fram
     return;
   }
 
-  rmsg.header.stamp = this->parent->now();
+  rmsg.header.stamp = this->router->now();
   rmsg.header.frame_id = utils::format("ep:%d", src_id);
 
   if (ok) {
     this->source->publish(rmsg);
-  } else if (auto & nh = this->parent) {
+  } else if (auto & nh = this->router) {
     RCLCPP_ERROR(nh->get_logger(), "message conversion error");
   }
 }
@@ -525,7 +522,7 @@ void ROSEndpoint::ros_recv_message(const mavros_msgs::msg::Mavlink::SharedPtr rm
 
   if (ok) {
     recv_message(&mmsg, framing);
-  } else if (auto & nh = this->parent) {
+  } else if (auto & nh = this->router) {
     RCLCPP_ERROR(nh->get_logger(), "message conversion error");
   }
 }

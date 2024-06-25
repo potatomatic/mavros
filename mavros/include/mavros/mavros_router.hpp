@@ -79,8 +79,7 @@ public:
   };
 
   Endpoint()
-  : parent(),
-    id(0),
+  : id(0),
     link_type(Type::fcu),
     url{},
     remote_addrs{},
@@ -92,7 +91,7 @@ public:
     remote_addrs.emplace(broadcast_addr);
   }
 
-  std::shared_ptr<Router> parent;
+  Router * router = nullptr;
 
   uint32_t id;                         // id of the endpoint
   Type link_type;                      // class of the endpoint
@@ -185,6 +184,9 @@ public:
     RCLCPP_INFO(get_logger(), "Known MAVLink dialects:%s", ss.str().c_str());
     RCLCPP_INFO(get_logger(), "MAVROS Router started");
   }
+
+  Router(Router const &) = delete;
+  Router(Router &&) = delete;
 
   void route_message(Endpoint::SharedPtr src, const mavlink_message_t * msg, const Framing framing);
 
