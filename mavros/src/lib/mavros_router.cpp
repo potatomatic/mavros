@@ -178,34 +178,36 @@ void Router::add_endpoint(
     return;
   }
 
-  id_t id = id_counter.fetch_add(1);
+  id_t const id = id_counter.fetch_add(1);
 
-  Endpoint::UniquePtr ep;
-  if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
-    ep = std::make_unique<ROSEndpoint>();
-  } else {
-    ep = std::make_unique<MAVConnEndpoint>();
-  }
+  try
+  {
+    Endpoint::UniquePtr ep;
+    if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
+      ep = std::make_unique<ROSEndpoint>();
+    } else {
+      ep = std::make_unique<MAVConnEndpoint>();
+    }
 
-  ep->router = this;
-  ep->id = id;
-  ep->link_type = static_cast<Endpoint::Type>(request->type);
-  ep->url = request->url;
+    ep->router = this;
+    ep->id = id;
+    ep->link_type = static_cast<Endpoint::Type>(request->type);
+    ep->url = request->url;
 
-  // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
-  RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
+    // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
+    RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
 
-  auto result = ep->open();
-  if (result.first) {
+    ep->open();
     RCLCPP_INFO(lg, "link[%d] opened successfully", id);
-  } else {
-    RCLCPP_ERROR(lg, "link[%d] open failed: %s", id, result.second.c_str());
-  }
 
-  this->endpoints[id] = std::move(ep);
-  response->successful = result.first;
-  response->reason = result.second;
-  response->id = id;
+    this->endpoints[id] = std::move(ep);
+    response->successful = true;
+    response->id = id;
+  } catch (std::runtime_error const & e) {
+    RCLCPP_ERROR_STREAM(lg, "link [" << id << "] open failed: " << e.what());
+    response->successful = false;
+    response->reason = e.what();
+  }
 }
 
 void Router::del_endpoint(
@@ -337,12 +339,14 @@ void Router::periodic_reconnect_endpoints()
     }
 
     RCLCPP_INFO(lg, "link[%d] trying to reconnect...", p->id);
-    auto result = p->open();
 
-    if (result.first) {
-      RCLCPP_INFO(lg, "link[%d] reconnected", p->id);
-    } else {
-      RCLCPP_ERROR(lg, "link[%d] reconnect failed: %s", p->id, result.second.c_str());
+    try
+    {
+      p->open();
+      RCLCPP_INFO_STREAM(lg, "link[" << p->id << "] reconnected");
+    } catch (std::runtime_error const & e)
+    {
+      RCLCPP_ERROR_STREAM(lg, "link[" << p->id << "] reconnect failed: " << e.what());
     }
   }
 }
@@ -438,24 +442,18 @@ bool MAVConnEndpoint::is_open()
   return this->link->is_open();
 }
 
-std::pair<bool, std::string> MAVConnEndpoint::open()
+void MAVConnEndpoint::open()
 {
-  try {
-    this->link = mavconn::MAVConnInterface::open_url(
-      this->url, 1, mavconn::MAV_COMP_ID_UDP_BRIDGE, std::bind(
-        &MAVConnEndpoint::recv_message,
-        this, _1, _2));
-  } catch (mavconn::DeviceError & ex) {
-    return {false, ex.what()};
-  }
+  this->link = mavconn::MAVConnInterface::open_url(
+    this->url, 1, mavconn::MAV_COMP_ID_UDP_BRIDGE, std::bind(
+      &MAVConnEndpoint::recv_message,
+      this, _1, _2));
 
   // not necessary because router would not serialize mavlink::Message
   // but that is a good default
   this->link->set_protocol_version(mavconn::Protocol::V20);
 
   // TODO(vooon): message signing?
-
-  return {true, ""};
 }
 
 void MAVConnEndpoint::close()
@@ -525,29 +523,23 @@ bool ROSEndpoint::is_open()
   return this->source && this->sink;
 }
 
-std::pair<bool, std::string> ROSEndpoint::open()
+void ROSEndpoint::open()
 {
   auto & nh = this->router;
   if (!nh) {
-    return {false, "router not set"};
+    throw std::logic_error {"router not set"};
   }
 
-  try {
-    auto qos = QoS(
-      1000).best_effort().durability_volatile();
-    this->source =
-      nh->create_publisher<mavros_msgs::msg::Mavlink>(
-      utils::format(
-        "%s/%s", this->url.c_str(),
-        "mavlink_source"), qos);
-    this->sink = nh->create_subscription<mavros_msgs::msg::Mavlink>(
-      utils::format("%s/%s", this->url.c_str(), "mavlink_sink"), qos,
-      std::bind(&ROSEndpoint::ros_recv_message, this, _1));
-  } catch (rclcpp::exceptions::InvalidTopicNameError & ex) {
-    return {false, ex.what()};
-  }
-
-  return {true, ""};
+  auto qos = QoS(
+    1000).best_effort().durability_volatile();
+  this->source =
+    nh->create_publisher<mavros_msgs::msg::Mavlink>(
+    utils::format(
+      "%s/%s", this->url.c_str(),
+      "mavlink_source"), qos);
+  this->sink = nh->create_subscription<mavros_msgs::msg::Mavlink>(
+    utils::format("%s/%s", this->url.c_str(), "mavlink_sink"), qos,
+    std::bind(&ROSEndpoint::ros_recv_message, this, _1));
 }
 
 void ROSEndpoint::close()

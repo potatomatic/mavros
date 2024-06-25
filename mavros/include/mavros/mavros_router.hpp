@@ -66,7 +66,7 @@ class Router;
  * One endpoint could map to several remote devices,
  * e.g. mesh radio for swarm.
  */
-class Endpoint : public std::enable_shared_from_this<Endpoint>
+class Endpoint
 {
 public:
   RCLCPP_SMART_PTR_DEFINITIONS(Endpoint)
@@ -107,7 +107,7 @@ public:
   std::set<addr_t> stale_addrs;        // temporary storage for stale remote addrs
 
   virtual bool is_open() = 0;
-  virtual std::pair<bool, std::string> open() = 0;
+  virtual void open() = 0;
   virtual void close() = 0;
 
   virtual void send_message(
@@ -221,7 +221,7 @@ public:
   size_t stat_last_drop_count;
 
   bool is_open() override;
-  std::pair<bool, std::string> open() override;
+  void open() override;
   void close() override;
 
   void send_message(
@@ -255,7 +255,7 @@ public:
   rclcpp::Publisher<mavros_msgs::msg::Mavlink>::SharedPtr source;        // FCU -> UAS
 
   bool is_open() override;
-  std::pair<bool, std::string> open() override;
+  void open() override;
   void close() override;
 
   void send_message(
