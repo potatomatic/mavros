@@ -119,20 +119,20 @@ retry:
   for (auto & kv : this->endpoints) {
     auto & dest = kv.second;
 
-    if (src.id == dest->id) {
+    if (src.get_id() == dest->get_id()) {
       continue;     // do not echo message
     }
-    if (src.link_type == dest->link_type) {
+    if (src.get_link_type() == dest->get_link_type()) {
       continue;     // drop messages between same type FCU/GCS/UAS
     }
 
     // NOTE(vooon): current router do not allow to speak drone-to-drone.
     //              if it is needed perhaps better to add mavlink-router in front of mavros-router.
 
-    bool has_target = dest->remote_addrs.find(target_addr) != dest->remote_addrs.end();
+    bool const has_target = dest->has_remote_addr(target_addr);
 
     if (has_target) {
-      dest->send_message(msg, framing, src.id);
+      dest->send_message(msg, framing, src.get_id());
       sent_cnt++;
     }
   }
@@ -184,15 +184,10 @@ void Router::add_endpoint(
   {
     Endpoint::UniquePtr ep;
     if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
-      ep = std::make_unique<ROSEndpoint>();
+      ep = std::make_unique<ROSEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
     } else {
-      ep = std::make_unique<MAVConnEndpoint>();
+      ep = std::make_unique<MAVConnEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
     }
-
-    ep->router = this;
-    ep->id = id;
-    ep->link_type = static_cast<Endpoint::Type>(request->type);
-    ep->url = request->url;
 
     // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
     RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
@@ -233,8 +228,8 @@ void Router::del_endpoint(
     lg, "Requested to del endpoint type: %d url: %s", request->type,
     request->url.c_str());
   for (auto it = this->endpoints.cbegin(); it != this->endpoints.cend(); it++) {
-    if (it->second->url == request->url &&
-      it->second->link_type == static_cast<Endpoint::Type>( request->type))
+    if (it->second->get_url() == request->url &&
+      it->second->get_link_type() == static_cast<Endpoint::Type>( request->type))
     {
       it->second->close();
       this->diagnostic_updater.removeByName(it->second->diag_name());
@@ -277,11 +272,11 @@ std::set<std::string> Router::get_existing_set(Endpoint::Type type) {
   std::set<std::string> ret;
 
   for (const auto & kv : this->endpoints) {
-    if (kv.second->link_type != type) {
+    if (kv.second->get_link_type() != type) {
       continue;
     }
 
-    ret.emplace(kv.second->url);
+    ret.emplace(kv.second->get_url());
   }
 
   return ret;
@@ -338,15 +333,15 @@ void Router::periodic_reconnect_endpoints()
       continue;
     }
 
-    RCLCPP_INFO(lg, "link[%d] trying to reconnect...", p->id);
+    RCLCPP_INFO(lg, "link[%d] trying to reconnect...", p->get_id());
 
     try
     {
       p->open();
-      RCLCPP_INFO_STREAM(lg, "link[" << p->id << "] reconnected");
+      RCLCPP_INFO_STREAM(lg, "link[" << p->get_id() << "] reconnected");
     } catch (std::runtime_error const & e)
     {
-      RCLCPP_ERROR_STREAM(lg, "link[" << p->id << "] reconnect failed: " << e.what());
+      RCLCPP_ERROR_STREAM(lg, "link[" << p->get_id() << "] reconnect failed: " << e.what());
     }
   }
 }
@@ -358,23 +353,24 @@ void Router::periodic_clear_stale_remote_addrs()
 
   RCLCPP_DEBUG(lg, "clear stale remotes");
   for (auto & kv : this->endpoints) {
-    auto & p = kv.second;
-
-    // Step 1: remove any stale addrs that still there
-    //         (hadn't been removed by Endpoint::recv_message())
-    for (auto addr : p->stale_addrs) {
-      if (addr != 0) {
-        p->remote_addrs.erase(addr);
-        RCLCPP_INFO(
-          lg, "link[%d] removed stale remote address %d.%d", p->id, addr >> 8,
-          addr & 0xff);
-      }
-    }
-
-    // Step 2: re-initiate stale_addrs
-    p->stale_addrs.clear();
-    p->stale_addrs.insert(p->remote_addrs.begin(), p->remote_addrs.end());
+    kv.second->clear_stale_remote_addrs();
   }
+}
+
+void Endpoint::clear_stale_remote_addrs()
+{
+  // Step 1: remove any stale addrs that still there
+  //         (hadn't been removed by Endpoint::recv_message())
+  for (auto addr : stale_addrs) {
+    if (addr != 0) {
+      remote_addrs.erase(addr);
+      RCLCPP_INFO_STREAM(
+        router->get_logger(), "link[" << id << "] removed stale remote address " << (addr >> 8) << "." << (addr & 0xff));
+    }
+  }
+
+  // Step 2: re-initiate stale_addrs
+  stale_addrs = remote_addrs;
 }
 
 void Router::diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat)
