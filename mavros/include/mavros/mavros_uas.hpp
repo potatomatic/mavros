@@ -249,7 +249,9 @@ public:
     const rclcpp::NodeOptions & options_ = rclcpp::NodeOptions(),
     const std::string & name_ = "mavros",
     const std::string & uas_url_ = "/uas1", uint8_t target_system_ = 1,
-    uint8_t target_component_ = 1);
+    uint8_t target_component_ = 1,
+    rclcpp::Executor * executor_ = nullptr
+    );
 
   /**
    * @brief Prohibit @a UAS copying, because plugins hold raw pointers to @a UAS.
@@ -592,7 +594,7 @@ private:
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr set_parameters_handle_ptr;
 
   // rclcpp::executors::MultiThreadedExecutor exec;
-  UASExecutor exec;
+  std::unique_ptr<UASExecutor> exec;
 
   // plugins
   pluginlib::ClassLoader<plugin::PluginFactory> plugin_factory_loader;
@@ -643,7 +645,7 @@ private:
   virtual plugin::Plugin::SharedPtr create_plugin_instance(const std::string & pl_name);
 
   //! load plugin
-  void add_plugin(const std::string & pl_name);
+  void add_plugin(const std::string & pl_name, rclcpp::Executor& executor);
 
   rcl_interfaces::msg::SetParametersResult on_set_parameters_cb(
     const std::vector<rclcpp::Parameter> & parameters);

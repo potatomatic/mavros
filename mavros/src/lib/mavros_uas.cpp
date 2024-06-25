@@ -35,7 +35,8 @@ UAS::UAS(
   const rclcpp::NodeOptions & options_,
   const std::string & name_,
   const std::string & uas_url_, uint8_t target_system_,
-  uint8_t target_component_)
+  uint8_t target_component_,
+  rclcpp::Executor * executor_)
 : rclcpp::Node(name_, options_ /* rclcpp::NodeOptions(options_).use_intra_process_comms(true) */),
   diagnostic_updater(this, 1.0),
   data(),
@@ -130,8 +131,10 @@ UAS::UAS(
     plugin_denylist.emplace_back("*");
   }
 
+  // Initialize executor and plugins
+  rclcpp::Executor& the_executor = executor_ ? *executor_ : *(exec = std::make_unique<UASExecutor>());
   for (auto & name : plugin_factory_loader.getDeclaredClasses()) {
-    add_plugin(name);
+    add_plugin(name, the_executor);
   }
 
   connect_to_router();
@@ -177,7 +180,9 @@ UAS::UAS(
     source_system, source_component,
     target_system, target_component);
 
-  exec_spin_thd = thread_ptr(
+  // If using internal executor, start it
+  if (exec) {
+    exec_spin_thd = thread_ptr(
     new std::thread(
       [this]() {
         utils::set_this_thread_name("uas-exec/%d.%d", source_system, source_component);
@@ -185,15 +190,16 @@ UAS::UAS(
 
         RCLCPP_INFO(
           lg, "UAS Executor started, threads: %zu",
-          this->exec.get_number_of_threads());
-        this->exec.spin();
+          this->exec->get_number_of_threads());
+        this->exec->spin();
         RCLCPP_WARN(lg, "UAS Executor terminated");
       }),
     [this](std::thread * t) {
-      this->exec.cancel();
+      this->exec->cancel();
       t->join();
       delete t;
     });
+  }
 }
 
 void UAS::plugin_route(const mavlink_message_t * mmsg, const Framing framing)
@@ -262,7 +268,7 @@ plugin::Plugin::SharedPtr UAS::create_plugin_instance(const std::string & pl_nam
     plugin_factory->create_plugin_instance(this);
 }
 
-void UAS::add_plugin(const std::string & pl_name)
+void UAS::add_plugin(const std::string & pl_name, rclcpp::Executor& executor)
 {
   auto lg = get_logger();
 
@@ -330,7 +336,7 @@ void UAS::add_plugin(const std::string & pl_name)
     auto pl_node = plugin->get_node();
     if (pl_node && pl_node.get() != this) {
       RCLCPP_DEBUG_STREAM(lg, "Plugin " << pl_name << " added to executor");
-      exec.add_node(pl_node);
+      executor.add_node(pl_node);
     }
 
     RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " initialized");
