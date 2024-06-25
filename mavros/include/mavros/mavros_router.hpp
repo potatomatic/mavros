@@ -78,12 +78,12 @@ public:
     uas = 2,
   };
 
-  Endpoint()
-  : id(0),
-    link_type(Type::fcu),
-    url{},
-    remote_addrs{},
-    stale_addrs{}
+protected:
+  explicit Endpoint(Router * router, uint32_t id, Type link_type, std::string url)
+  : router {router}
+  , id {id}
+  , link_type {link_type}
+  , url {url}
   {
     const addr_t broadcast_addr = 0;
 
@@ -91,20 +91,13 @@ public:
     remote_addrs.emplace(broadcast_addr);
   }
 
+public:
   /**
    * @brief Destructor.
    *
-   * Virtual destructor is necessary, because @a Router used polymorphic pointers to @a Endpoint.
+   * Virtual destructor is required, because @a Router used polymorphic pointers to @a Endpoint.
    */
   virtual ~Endpoint() = default;
-
-  Router * router = nullptr;
-
-  uint32_t id;                         // id of the endpoint
-  Type link_type;                      // class of the endpoint
-  std::string url;                     // url to open that endpoint
-  std::set<addr_t> remote_addrs;       // remotes that we heard there
-  std::set<addr_t> stale_addrs;        // temporary storage for stale remote addrs
 
   virtual bool is_open() = 0;
   virtual void open() = 0;
@@ -117,6 +110,32 @@ public:
 
   virtual std::string diag_name();
   virtual void diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat) = 0;
+
+  Type get_link_type() const noexcept {
+    return link_type;
+  }
+
+  std::string const& get_url() const noexcept {
+    return url;
+  }
+
+  uint32_t get_id() const noexcept {
+    return id;
+  }
+
+  bool has_remote_addr(addr_t addr) const noexcept {
+    return remote_addrs.find(addr) != remote_addrs.end();
+  }
+
+  void clear_stale_remote_addrs();
+
+protected:
+  Router * const router;
+  uint32_t const id;                         // id of the endpoint
+  Type const link_type;                      // class of the endpoint
+  std::string const url;                     // url to open that endpoint
+  std::set<addr_t> remote_addrs;       // remotes that we heard there
+  std::set<addr_t> stale_addrs;        // temporary storage for stale remote addrs
 };
 
 /**
@@ -210,9 +229,9 @@ private:
 class MAVConnEndpoint : public Endpoint
 {
 public:
-  MAVConnEndpoint()
-  : Endpoint(),
-    stat_last_drop_count(0)
+  explicit MAVConnEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
+  : Endpoint {router, id, link_type, url}
+  , stat_last_drop_count {0}
   {}
 
   ~MAVConnEndpoint();
@@ -242,8 +261,8 @@ public:
 class ROSEndpoint : public Endpoint
 {
 public:
-  ROSEndpoint()
-  : Endpoint()
+  explicit ROSEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
+  : Endpoint {router, id, link_type, url}
   {}
 
   ~ROSEndpoint()
