@@ -33,6 +33,55 @@ static inline uint8_t get_msg_byte(const mavlink_message_t * msg, uint8_t offset
   return _MAV_PAYLOAD(msg)[offset];
 }
 
+Router::Router(
+  const rclcpp::NodeOptions & options, const std::string & node_name)
+: rclcpp::Node {node_name, options}
+, stat_msg_routed {0}
+, stat_msg_sent {0}
+, stat_msg_dropped {0}
+, diagnostic_updater {this, 1.0}
+{
+  RCLCPP_DEBUG(this->get_logger(), "Start mavros::router::Router initialization...");
+
+  add_service = this->create_service<mavros_msgs::srv::EndpointAdd>(
+    "~/add_endpoint",
+    std::bind(&Router::add_endpoint, this, _1, _2));
+  del_service = this->create_service<mavros_msgs::srv::EndpointDel>(
+    "~/del_endpoint",
+    std::bind(&Router::del_endpoint, this, _1, _2));
+
+  // try to reconnect endpoint each 30 seconds
+  reconnect_timer =
+    this->create_wall_timer(30s, std::bind(&Router::periodic_reconnect_endpoints, this));
+
+  // collect garbage addrs each minute
+  stale_addrs_timer =
+    this->create_wall_timer(60s, std::bind(&Router::periodic_clear_stale_remote_addrs, this));
+
+  diagnostic_updater.setHardwareID("none");  // NOTE: router connects several hardwares
+  diagnostic_updater.add("MAVROS Router", this, &Router::diag_run);
+
+  std::stringstream ss;
+  for (auto & s : mavconn::MAVConnInterface::get_known_dialects()) {
+    ss << " " << s;
+  }
+
+  RCLCPP_INFO(get_logger(), "Built-in SIMD instructions: %s", Eigen::SimdInstructionSetsInUse());
+  RCLCPP_INFO(get_logger(), "Built-in MAVLink package version: %s", mavlink::version);
+  RCLCPP_INFO(get_logger(), "Known MAVLink dialects:%s", ss.str().c_str());
+
+  set_parameters_handle_ptr =
+    this->add_on_set_parameters_callback(std::bind(&Router::on_set_parameters_cb, this, _1));
+
+  // This effectively triggers the on_set_parameters_cb() and adds endpoints, if any.
+  // We purposly do it at the very end of the Router() ctor, when all other parts of the Router object are initialized.
+  this->declare_parameter<StrV>("fcu_urls", StrV());
+  this->declare_parameter<StrV>("gcs_urls", StrV());
+  this->declare_parameter<StrV>("uas_urls", StrV());
+
+  RCLCPP_INFO(get_logger(), "MAVROS Router started");
+}
+
 void Router::route_message(
   Endpoint::SharedPtr src, const mavlink_message_t * msg,
   const Framing framing)
@@ -189,69 +238,15 @@ rcl_interfaces::msg::SetParametersResult Router::on_set_parameters_cb(
 
   RCLCPP_DEBUG(lg, "params callback");
 
-  using Type = Endpoint::Type;
-
-  auto get_existing_set = [this](Type type) -> std::set<std::string> {
-      shared_lock lock(this->mu);
-
-      std::set<std::string> ret;
-
-      for (const auto & kv : this->endpoints) {
-        if (kv.second->link_type != type) {
-          continue;
-        }
-
-        ret.emplace(kv.second->url);
-      }
-
-      return ret;
-    };
-
-  auto update_endpoints = [&, this](const rclcpp::Parameter & parameter, Type type) {
-      RCLCPP_DEBUG(lg, "Processing urls parameter: %s", parameter.get_name().c_str());
-
-      auto urls = parameter.as_string_array();
-      std::set<std::string> urls_set(urls.begin(), urls.end());
-      auto existing_set = get_existing_set(type);
-
-      std::set<std::string> to_add{}, to_del{};
-      std::set_difference(
-        urls_set.begin(), urls_set.end(), existing_set.begin(),
-        existing_set.end(), std::inserter(to_add, to_add.begin()));
-      std::set_difference(
-        existing_set.begin(), existing_set.end(), urls_set.begin(),
-        urls_set.end(), std::inserter(to_del, to_del.begin()));
-
-      for (auto url : to_add) {
-        auto req = std::make_shared<mavros_msgs::srv::EndpointAdd::Request>();
-        auto resp = std::make_shared<mavros_msgs::srv::EndpointAdd::Response>();
-
-        req->type = utils::enum_value(type);
-        req->url = url;
-
-        this->add_endpoint(req, resp);
-      }
-
-      for (auto url : to_del) {
-        auto req = std::make_shared<mavros_msgs::srv::EndpointDel::Request>();
-        auto resp = std::make_shared<mavros_msgs::srv::EndpointDel::Response>();
-
-        req->type = utils::enum_value(type);
-        req->url = url;
-
-        this->del_endpoint(req, resp);
-      }
-    };
-
   result.successful = true;
   for (const auto & parameter : parameters) {
     const auto name = parameter.get_name();
     if (name == "fcu_urls") {
-      update_endpoints(parameter, Type::fcu);
+      update_endpoints(parameter, Endpoint::Type::fcu);
     } else if (name == "gcs_urls") {
-      update_endpoints(parameter, Type::gcs);
+      update_endpoints(parameter, Endpoint::Type::gcs);
     } else if (name == "uas_urls") {
-      update_endpoints(parameter, Type::uas);
+      update_endpoints(parameter, Endpoint::Type::uas);
     } else {
       result.successful = false;
       result.reason = "unknown parameter";
@@ -260,6 +255,59 @@ rcl_interfaces::msg::SetParametersResult Router::on_set_parameters_cb(
 
   return result;
 }
+
+std::set<std::string> Router::get_existing_set(Endpoint::Type type) {
+  shared_lock lock(this->mu);
+
+  std::set<std::string> ret;
+
+  for (const auto & kv : this->endpoints) {
+    if (kv.second->link_type != type) {
+      continue;
+    }
+
+    ret.emplace(kv.second->url);
+  }
+
+  return ret;
+};
+
+
+void Router::update_endpoints(const rclcpp::Parameter & parameter, Endpoint::Type type) {
+  RCLCPP_DEBUG(get_logger(), "Processing urls parameter: %s", parameter.get_name().c_str());
+
+  auto urls = parameter.as_string_array();
+  std::set<std::string> urls_set(urls.begin(), urls.end());
+  auto existing_set = get_existing_set(type);
+
+  std::set<std::string> to_add{}, to_del{};
+  std::set_difference(
+    urls_set.begin(), urls_set.end(), existing_set.begin(),
+    existing_set.end(), std::inserter(to_add, to_add.begin()));
+  std::set_difference(
+    existing_set.begin(), existing_set.end(), urls_set.begin(),
+    urls_set.end(), std::inserter(to_del, to_del.begin()));
+
+  for (auto url : to_add) {
+    auto req = std::make_shared<mavros_msgs::srv::EndpointAdd::Request>();
+    auto resp = std::make_shared<mavros_msgs::srv::EndpointAdd::Response>();
+
+    req->type = utils::enum_value(type);
+    req->url = url;
+
+    this->add_endpoint(req, resp);
+  }
+
+  for (auto url : to_del) {
+    auto req = std::make_shared<mavros_msgs::srv::EndpointDel::Request>();
+    auto resp = std::make_shared<mavros_msgs::srv::EndpointDel::Response>();
+
+    req->type = utils::enum_value(type);
+    req->url = url;
+
+    this->del_endpoint(req, resp);
+  }
+};
 
 void Router::periodic_reconnect_endpoints()
 {
@@ -334,7 +382,7 @@ void Router::diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat)
 void Endpoint::recv_message(const mavlink_message_t * msg, const Framing framing)
 {
   rcpputils::assert_true(msg, "msg not nullptr");
-  // rcpputils::assert_true(this->router, "router not nullptr");
+  rcpputils::assert_true(this->router, "router not nullptr");
 
   const addr_t sysid_addr = msg->sysid << 8;
   const addr_t sysid_compid_addr = (msg->sysid << 8) | msg->compid;
