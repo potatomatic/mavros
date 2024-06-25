@@ -65,9 +65,8 @@ public:
     stale_addrs.emplace(addr);
   }
 
-  MOCK_METHOD0(is_open, bool());
-  MOCK_METHOD0(open, void());
-  MOCK_METHOD0(close, void());
+  MOCK_CONST_METHOD0(is_open, bool());
+  MOCK_METHOD0(reconnect, void());
 
   MOCK_METHOD3(
     send_message, void(const mavlink_message_t * msg,
