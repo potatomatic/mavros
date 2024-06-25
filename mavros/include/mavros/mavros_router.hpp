@@ -142,48 +142,7 @@ public:
 
   explicit Router(
     const rclcpp::NodeOptions & options,
-    const std::string & node_name = "mavros_router")
-  : rclcpp::Node(node_name,
-      options /* rclcpp::NodeOptions(options).use_intra_process_comms(true) */),
-    endpoints{}, stat_msg_routed(0), stat_msg_sent(0), stat_msg_dropped(0),
-    diagnostic_updater(this, 1.0)
-  {
-    RCLCPP_DEBUG(this->get_logger(), "Start mavros::router::Router initialization...");
-
-    set_parameters_handle_ptr =
-      this->add_on_set_parameters_callback(std::bind(&Router::on_set_parameters_cb, this, _1));
-    this->declare_parameter<StrV>("fcu_urls", StrV());
-    this->declare_parameter<StrV>("gcs_urls", StrV());
-    this->declare_parameter<StrV>("uas_urls", StrV());
-
-    add_service = this->create_service<mavros_msgs::srv::EndpointAdd>(
-      "~/add_endpoint",
-      std::bind(&Router::add_endpoint, this, _1, _2));
-    del_service = this->create_service<mavros_msgs::srv::EndpointDel>(
-      "~/del_endpoint",
-      std::bind(&Router::del_endpoint, this, _1, _2));
-
-    // try to reconnect endpoint each 30 seconds
-    reconnect_timer =
-      this->create_wall_timer(30s, std::bind(&Router::periodic_reconnect_endpoints, this));
-
-    // collect garbage addrs each minute
-    stale_addrs_timer =
-      this->create_wall_timer(60s, std::bind(&Router::periodic_clear_stale_remote_addrs, this));
-
-    diagnostic_updater.setHardwareID("none");  // NOTE: router connects several hardwares
-    diagnostic_updater.add("MAVROS Router", this, &Router::diag_run);
-
-    std::stringstream ss;
-    for (auto & s : mavconn::MAVConnInterface::get_known_dialects()) {
-      ss << " " << s;
-    }
-
-    RCLCPP_INFO(get_logger(), "Built-in SIMD instructions: %s", Eigen::SimdInstructionSetsInUse());
-    RCLCPP_INFO(get_logger(), "Built-in MAVLink package version: %s", mavlink::version);
-    RCLCPP_INFO(get_logger(), "Known MAVLink dialects:%s", ss.str().c_str());
-    RCLCPP_INFO(get_logger(), "MAVROS Router started");
-  }
+    const std::string & node_name = "mavros_router");
 
   Router(Router const &) = delete;
   Router(Router &&) = delete;
@@ -226,6 +185,8 @@ private:
     const std::vector<rclcpp::Parameter> & parameters);
 
   void diag_run(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  std::set<std::string> get_existing_set(Endpoint::Type type);
+  void update_endpoints(const rclcpp::Parameter & parameter, Endpoint::Type type);
 };
 
 /**
