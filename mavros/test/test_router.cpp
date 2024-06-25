@@ -51,6 +51,20 @@ using LT = Endpoint::Type;
 class MockEndpoint : public Endpoint
 {
 public:
+  MockEndpoint(Router * router, uint32_t id, Type link_type, std::string url, std::set<addr_t> const& remotes)
+  : Endpoint {router, id, link_type, url}
+  {
+    remote_addrs = remotes;
+  }
+
+  bool has_stale_addr(addr_t addr) const noexcept {
+    return stale_addrs.find(addr) != remote_addrs.end();
+  }
+
+  void add_stale_addr(addr_t addr) {
+    stale_addrs.emplace(addr);
+  }
+
   MOCK_METHOD0(is_open, bool());
   MOCK_METHOD0(open, void());
   MOCK_METHOD0(close, void());
@@ -92,14 +106,7 @@ public:
     auto make_and_add_mock_endpoint =
       [router](id_t id, const std::string & url, LT type,
         std::set<addr_t> remotes) {
-        auto ep = std::make_unique<MockEndpoint>();
-
-        ep->router = router.get();
-        ep->id = id;
-        ep->link_type = type;
-        ep->url = url;
-        ep->remote_addrs = remotes;
-
+        auto ep = std::make_unique<MockEndpoint>(router.get(), id, type, url, remotes);
         router->endpoints[id] = std::move(ep);
       };
 
@@ -200,10 +207,10 @@ TEST_F(TestRouter, set_parameter)
   EXPECT_EQ(size_t(6), endpoints.size());
   for (auto & kv : endpoints) {
     auto & ep = kv.second;
-    auto tc = expected_values.at(ep->id - 1000);
+    auto tc = expected_values.at(ep->get_id() - 1000);
 
-    EXPECT_EQ(tc.first, ep->url);
-    EXPECT_EQ(tc.second, ep->link_type);
+    EXPECT_EQ(tc.first, ep->get_url());
+    EXPECT_EQ(tc.second, ep->get_link_type());
   }
 
   // XXX NOTE(vooon): i do not see destructor call!
@@ -390,14 +397,14 @@ TEST_F(TestRouter, endpoint_recv_message)
 
   auto uas1 = getep(router, 1000);
 
-  uas1->stale_addrs.emplace(0x0100);
-  uas1->stale_addrs.emplace(0x01BF);
+  uas1->add_stale_addr(0x0100);
+  uas1->add_stale_addr(0x01BF);
 
-  ASSERT_NE(uas1->stale_addrs.end(), uas1->stale_addrs.find(0x0100));
-  ASSERT_NE(uas1->stale_addrs.end(), uas1->stale_addrs.find(0x01BF));
-  ASSERT_NE(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x0000));
-  ASSERT_EQ(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x0100));
-  ASSERT_EQ(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x01BF));
+  ASSERT_TRUE(uas1->has_stale_addr(0x0100));
+  ASSERT_TRUE(uas1->has_stale_addr(0x01BF));
+  ASSERT_TRUE(uas1->has_remote_addr(0x0000));
+  ASSERT_TRUE(uas1->has_remote_addr(0x0100));
+  ASSERT_TRUE(uas1->has_remote_addr(0x01BF));
 
   auto hb = make_heartbeat();
   auto hbmsg = convert_message(hb, 0x01BF);
@@ -405,11 +412,11 @@ TEST_F(TestRouter, endpoint_recv_message)
 
   uas1->recv_message(&hbmsg, fr);
 
-  ASSERT_EQ(uas1->stale_addrs.end(), uas1->stale_addrs.find(0x0100));
-  ASSERT_EQ(uas1->stale_addrs.end(), uas1->stale_addrs.find(0x01BF));
-  ASSERT_NE(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x0000));
-  ASSERT_NE(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x0100));
-  ASSERT_NE(uas1->remote_addrs.end(), uas1->remote_addrs.find(0x01BF));
+  ASSERT_TRUE(uas1->has_stale_addr(0x0100));
+  ASSERT_TRUE(uas1->has_stale_addr(0x01BF));
+  ASSERT_TRUE(uas1->has_remote_addr(0x0000));
+  ASSERT_TRUE(uas1->has_remote_addr(0x0100));
+  ASSERT_TRUE(uas1->has_remote_addr(0x01BF));
 
   ASSERT_EQ(size_t(1), get_stat_msg_routed(router));
   ASSERT_EQ(size_t(0), get_stat_msg_sent(router));
