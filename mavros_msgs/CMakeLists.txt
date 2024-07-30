@@ -61,6 +61,7 @@ set(msg_files
   msg/GimbalManagerSetPitchyaw.msg
   msg/GimbalManagerStatus.msg
   msg/GlobalPositionTarget.msg
+  msg/Heartbeat.msg
   msg/HilActuatorControls.msg
   msg/HilControls.msg
   msg/HilGPS.msg
