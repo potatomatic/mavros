@@ -22,24 +22,25 @@
 #include <memory>
 #include <utility>
 
-#include "rcpputils/asserts.hpp"
-#include "mavros/mavros_uas.hpp"
-#include "mavros/plugin.hpp"
-#include "mavros/plugin_filter.hpp"
+#include <rcpputils/asserts.hpp>
+#include <mavros/mavros_uas.hpp>
+#include <mavros/plugin.hpp>
+#include <mavros/plugin_filter.hpp>
 
-#include "mavros_msgs/msg/state.hpp"
-#include "mavros_msgs/msg/sys_status.hpp"
-#include "mavros_msgs/msg/estimator_status.hpp"
-#include "mavros_msgs/msg/extended_state.hpp"
-#include "mavros_msgs/srv/stream_rate.hpp"
-#include "mavros_msgs/srv/set_mode.hpp"
-#include "mavros_msgs/srv/command_long.hpp"
-#include "mavros_msgs/msg/status_event.hpp"
-#include "mavros_msgs/msg/status_text.hpp"
-#include "mavros_msgs/msg/vehicle_info.hpp"
-#include "mavros_msgs/srv/vehicle_info_get.hpp"
-#include "mavros_msgs/srv/message_interval.hpp"
-#include "sensor_msgs/msg/battery_state.hpp"
+#include <mavros_msgs/msg/state.hpp>
+#include <mavros_msgs/msg/heartbeat.hpp>
+#include <mavros_msgs/msg/sys_status.hpp>
+#include <mavros_msgs/msg/estimator_status.hpp>
+#include <mavros_msgs/msg/extended_state.hpp>
+#include <mavros_msgs/srv/stream_rate.hpp>
+#include <mavros_msgs/srv/set_mode.hpp>
+#include <mavros_msgs/srv/command_long.hpp>
+#include <mavros_msgs/msg/status_event.hpp>
+#include <mavros_msgs/msg/status_text.hpp>
+#include <mavros_msgs/msg/vehicle_info.hpp>
+#include <mavros_msgs/srv/vehicle_info_get.hpp>
+#include <mavros_msgs/srv/message_interval.hpp>
+#include <sensor_msgs/msg/battery_state.hpp>
 
 namespace mavros
 {
@@ -570,6 +571,8 @@ public:
 
     state_pub = node->create_publisher<mavros_msgs::msg::State>(
       "state", state_qos);
+    heartbeat_pub = node->create_publisher<mavros_msgs::msg::Heartbeat>(
+      "heartbeat", sensor_qos);
     extended_state_pub = node->create_publisher<mavros_msgs::msg::ExtendedState>(
       "extended_state", state_qos);
     sys_status_pub = node->create_publisher<mavros_msgs::msg::SysStatus>(
@@ -653,6 +656,7 @@ private:
   rclcpp::TimerBase::SharedPtr autopilot_version_timer;
 
   rclcpp::Publisher<mavros_msgs::msg::State>::SharedPtr state_pub;
+  rclcpp::Publisher<mavros_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub;
   rclcpp::Publisher<mavros_msgs::msg::ExtendedState>::SharedPtr extended_state_pub;
   rclcpp::Publisher<mavros_msgs::msg::SysStatus>::SharedPtr sys_status_pub;
   rclcpp::Publisher<mavros_msgs::msg::EstimatorStatus>::SharedPtr estimator_status_pub;
@@ -946,6 +950,16 @@ private:
 
     state_pub->publish(state_msg);
     hb_diag.tick(hb.type, hb.autopilot, state_msg.mode, hb.system_status);
+
+    mavros_msgs::msg::Heartbeat heartbeat;
+    heartbeat.header.stamp = stamp;
+    heartbeat.type = hb.type;
+    heartbeat.autopilot = hb.autopilot;
+    heartbeat.base_mode = hb.base_mode;
+    heartbeat.custom_mode = hb.custom_mode;
+    heartbeat.system_status = hb.system_status;
+    heartbeat.mavlink_version = hb.mavlink_version;
+    heartbeat_pub->publish(heartbeat);
   }
 
   void handle_extended_sys_state(
