@@ -273,14 +273,14 @@ void UAS::add_plugin(const std::string & pl_name, rclcpp::Executor& executor)
   auto lg = get_logger();
 
   if (!is_plugin_allowed(pl_name)) {
-    RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " ignored");
+    RCLCPP_DEBUG_STREAM(lg, "Plugin " << pl_name << " ignored");
     return;
   }
 
   try {
     auto plugin = create_plugin_instance(pl_name);
 
-    RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " created");
+    RCLCPP_DEBUG_STREAM(lg, "Plugin " << pl_name << " created");
 
     for (auto & info : plugin->get_subscriptions()) {
       auto msgid = std::get<0>(info);
