@@ -41,6 +41,7 @@ set(msg_files
   msg/CommandCode.msg
   msg/CompanionProcessStatus.msg
   msg/DebugValue.msg
+  msg/EKFStatusReport.msg
   msg/ESCInfo.msg
   msg/ESCInfoItem.msg
   msg/ESCStatus.msg
