@@ -100,6 +100,11 @@ public:
     return node->get_clock();
   }
 
+  std::string get_name() const
+  {
+    return node->get_name();
+  }
+
 protected:
   UASPtr uas;                       // uas back link
   rclcpp::Node::SharedPtr node;     // most of plugins uses sub-node

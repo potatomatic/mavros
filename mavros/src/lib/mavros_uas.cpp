@@ -36,7 +36,7 @@ UAS::UAS(
   const std::string & name_,
   const std::string & uas_url_, uint8_t target_system_,
   uint8_t target_component_,
-  rclcpp::Executor * executor_)
+  rclcpp::Executor * plugin_executor_)
 : rclcpp::Node(name_, options_ /* rclcpp::NodeOptions(options_).use_intra_process_comms(true) */),
   diagnostic_updater(this, 1.0),
   data(),
@@ -132,9 +132,9 @@ UAS::UAS(
   }
 
   // Initialize executor and plugins
-  rclcpp::Executor& the_executor = executor_ ? *executor_ : *(exec = std::make_unique<UASExecutor>());
+  rclcpp::Executor& plugin_executor = plugin_executor_ ? *plugin_executor_ : *(exec = std::make_unique<UASExecutor>());
   for (auto & name : plugin_factory_loader.getDeclaredClasses()) {
-    add_plugin(name, the_executor);
+    add_plugin(name, plugin_executor);
   }
 
   connect_to_router();
@@ -279,72 +279,78 @@ void UAS::add_plugin(const std::string & pl_name, rclcpp::Executor& executor)
 
   try {
     auto plugin = create_plugin_instance(pl_name);
-
     RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " created");
 
-    for (auto & info : plugin->get_subscriptions()) {
-      auto msgid = std::get<0>(info);
-      auto msgname = std::get<1>(info);
-      auto type_hash_ = std::get<2>(info);
-
-      std::string log_msgname;
-
-      if (is_mavlink_message_t(type_hash_)) {
-        log_msgname = utils::format("MSG-ID (%u) <%zu>", msgid, type_hash_);
-      } else {
-        log_msgname = utils::format("%s (%u) <%zu>", msgname, msgid, type_hash_);
-      }
-
-      RCLCPP_DEBUG_STREAM(lg, "Route " << log_msgname << " to " << pl_name);
-
-      auto it = plugin_subscriptions.find(msgid);
-      if (it == plugin_subscriptions.end()) {
-        // new entry
-
-        RCLCPP_DEBUG_STREAM(lg, log_msgname << " - new element");
-        plugin_subscriptions[msgid] = Plugin::Subscriptions{{info}};
-      } else {
-        // existing: check handler message type
-
-        bool append_allowed = is_mavlink_message_t(type_hash_);
-        if (!append_allowed) {
-          append_allowed = true;
-          for (auto & e : it->second) {
-            auto t2 = std::get<2>(e);
-            if (!is_mavlink_message_t(t2) && t2 != type_hash_) {
-              RCLCPP_ERROR_STREAM(
-                lg,
-                log_msgname << " routed to different message type (hash: " << t2 << ")");
-              append_allowed = false;
-            }
-          }
-        }
-
-        if (append_allowed) {
-          RCLCPP_DEBUG_STREAM(lg, log_msgname << " - emplace");
-          it->second.emplace_back(info);
-        } else {
-          RCLCPP_ERROR_STREAM(
-            lg,
-            log_msgname << " handler dropped because this ID are used for another message type");
-        }
-      }
-    }
-
-    loaded_plugins.push_back(plugin);
+    add_plugin(plugin);
 
     auto pl_node = plugin->get_node();
     if (pl_node && pl_node.get() != this) {
       RCLCPP_DEBUG_STREAM(lg, "Plugin " << pl_name << " added to executor");
       executor.add_node(pl_node);
     }
-
-    RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " initialized");
   } catch (pluginlib::PluginlibException & ex) {
     RCLCPP_ERROR_STREAM(lg, "Plugin " << pl_name << " load exception: " << ex.what());
   }
 }
 
+void UAS::add_plugin(mavros::plugin::Plugin::SharedPtr plugin)
+{
+  auto lg = get_logger();
+  std::string const pl_name = plugin->get_name();
+
+  for (auto &info : plugin->get_subscriptions()) {
+    auto msgid = std::get<0>(info);
+    auto msgname = std::get<1>(info);
+    auto type_hash_ = std::get<2>(info);
+
+    std::string log_msgname;
+
+    if (is_mavlink_message_t(type_hash_)) {
+      log_msgname = utils::format("MSG-ID (%u) <%zu>", msgid, type_hash_);
+    } else {
+      log_msgname = utils::format("%s (%u) <%zu>", msgname, msgid, type_hash_);
+    }
+
+    RCLCPP_DEBUG_STREAM(lg, "Route " << log_msgname << " to " << pl_name);
+
+    auto it = plugin_subscriptions.find(msgid);
+    if (it == plugin_subscriptions.end()) {
+      // new entry
+
+      RCLCPP_DEBUG_STREAM(lg, log_msgname << " - new element");
+      plugin_subscriptions[msgid] = Plugin::Subscriptions{{info}};
+    } else {
+      // existing: check handler message type
+
+      bool append_allowed = is_mavlink_message_t(type_hash_);
+      if (!append_allowed) {
+        append_allowed = true;
+        for (auto &e : it->second) {
+          auto t2 = std::get<2>(e);
+          if (!is_mavlink_message_t(t2) && t2 != type_hash_) {
+            RCLCPP_ERROR_STREAM(
+                lg,
+                log_msgname << " routed to different message type (hash: " << t2 << ")");
+            append_allowed = false;
+          }
+        }
+      }
+
+      if (append_allowed) {
+        RCLCPP_DEBUG_STREAM(lg, log_msgname << " - emplace");
+        it->second.emplace_back(info);
+      } else {
+        RCLCPP_ERROR_STREAM(
+            lg,
+            log_msgname << " handler dropped because this ID are used for another message type");
+      }
+    }
+  }
+
+  loaded_plugins.push_back(plugin);
+
+  RCLCPP_INFO_STREAM(lg, "Plugin " << pl_name << " initialized");
+}
 rcl_interfaces::msg::SetParametersResult UAS::on_set_parameters_cb(
   const std::vector<rclcpp::Parameter> & parameters)
 {

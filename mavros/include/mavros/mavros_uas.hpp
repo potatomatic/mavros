@@ -573,6 +573,9 @@ public:
   //! sets protocol version
   void set_protocol_version(mavconn::Protocol ver);
 
+  /// @brief Add plugin to UAS
+  void add_plugin(mavros::plugin::Plugin::SharedPtr plugin);
+
 private:
   friend class TestUAS;
 
