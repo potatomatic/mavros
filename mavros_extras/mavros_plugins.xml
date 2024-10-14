@@ -55,6 +55,11 @@ an offboard/companion computer through USB/Serial, to the FCU or vice-versa.</de
     <description>@brief ESC status plugin
 @plugin esc_status</description>
   </class>
+  <class name="ekf_status" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::EKFStatusPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
+    <description>@brief EKF status plugin
+@plugin ekf_status
+    </description>
+  </class>
   <class name="esc_telemetry" type="mavros::plugin::PluginFactoryTemplate&lt;mavros::extra_plugins::ESCTelemetryPlugin&gt;" base_class_type="mavros::plugin::PluginFactory">
     <description>@brief ESC telemetry plugin
 @plugin esc_telemetry
