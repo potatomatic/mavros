@@ -90,7 +90,7 @@ public:
   virtual ~Endpoint();
 
   virtual bool is_open() const = 0;
-  virtual void reconnect() = 0;
+  virtual void open() = 0;
 
   virtual void send_message(
     const mavlink_message_t * msg, const Framing framing = Framing::ok,
@@ -227,8 +227,7 @@ private:
   size_t stat_last_drop_count;
 
   bool is_open() const override;
-  void reconnect() override;
-  void open();
+  void open() override;
   void close();
 
   void send_message(
@@ -257,8 +256,7 @@ private:
   rclcpp::Publisher<mavros_msgs::msg::Mavlink>::SharedPtr source;        // FCU -> UAS
 
   bool is_open() const override;
-  void reconnect() override;
-  void open();
+  void open() override;
   void close();
 
   void send_message(

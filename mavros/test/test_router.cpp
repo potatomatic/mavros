@@ -66,7 +66,7 @@ public:
   }
 
   MOCK_CONST_METHOD0(is_open, bool());
-  MOCK_METHOD0(reconnect, void());
+  MOCK_METHOD0(open, void());
 
   MOCK_METHOD3(
     send_message, void(const mavlink_message_t * msg,
