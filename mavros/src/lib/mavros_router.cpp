@@ -174,25 +174,29 @@ void Router::add_endpoint(
 
   id_t const id = id_counter.fetch_add(1);
 
+  Endpoint::UniquePtr ep;
+  if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
+    ep = std::make_unique<ROSEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
+  } else {
+    ep = std::make_unique<MAVConnEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
+  }
+
+  // this->diagnostic_updater.add(ep->diag_name(), std::bind(&Endpoint::diag_run, ep, _1));
+  RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
+
   try
   {
-    Endpoint::UniquePtr ep;
-    if (request->type == mavros_msgs::srv::EndpointAdd::Request::TYPE_UAS) {
-      ep = std::make_unique<ROSEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
-    } else {
-      ep = std::make_unique<MAVConnEndpoint>(this, id, static_cast<Endpoint::Type>(request->type), request->url);
-    }
-
-    RCLCPP_INFO(lg, "Endpoint link[%d] created", id);
-
-    this->endpoints[id] = std::move(ep);
+    ep->open();
+	  RCLCPP_INFO(lg, "link[%d] opened successfully", id);
     response->successful = true;
-    response->id = id;
   } catch (std::runtime_error const & e) {
-    RCLCPP_ERROR_STREAM(lg, "link [" << id << "] open failed: " << e.what());
+    RCLCPP_ERROR_STREAM(lg, "link[" << id << "] open failed: " << e.what());
     response->successful = false;
     response->reason = e.what();
   }
+
+  this->endpoints[id] = std::move(ep);
+  response->id = id;
 }
 
 void Router::del_endpoint(
@@ -323,7 +327,7 @@ void Router::periodic_reconnect_endpoints()
 
     try
     {
-      p->reconnect();
+      p->open();
       RCLCPP_INFO_STREAM(lg, "link[" << p->get_id() << "] reconnected");
     } catch (std::runtime_error const & e)
     {
@@ -432,7 +436,6 @@ MAVConnEndpoint::MAVConnEndpoint(Router * router, uint32_t id, Type link_type, s
 : Endpoint {router, id, link_type, url}
 , stat_last_drop_count {0}
 {
-  open();
 }
 
 MAVConnEndpoint::~MAVConnEndpoint()
@@ -447,11 +450,6 @@ bool MAVConnEndpoint::is_open() const
   }
 
   return this->link->is_open();
-}
-
-void MAVConnEndpoint::reconnect()
-{
-  open();
 }
 
 void MAVConnEndpoint::open()
@@ -533,7 +531,6 @@ void MAVConnEndpoint::diag_run(diagnostic_updater::DiagnosticStatusWrapper & sta
 ROSEndpoint::ROSEndpoint(Router * router, uint32_t id, Type link_type, std::string url)
 : Endpoint {router, id, link_type, url}
 {
-  open();
 }
 
 ROSEndpoint::~ROSEndpoint()
@@ -544,11 +541,6 @@ ROSEndpoint::~ROSEndpoint()
 bool ROSEndpoint::is_open() const
 {
   return this->source && this->sink;
-}
-
-void ROSEndpoint::reconnect()
-{
-  open();
 }
 
 void ROSEndpoint::open()
