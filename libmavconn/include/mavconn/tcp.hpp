@@ -38,8 +38,7 @@ namespace mavconn
  *
  * @note IPv4 only
  */
-class MAVConnTCPClient : public MAVConnInterface,
-  public std::enable_shared_from_this<MAVConnTCPClient>
+class MAVConnTCPClient : public MAVConnInterface
 {
 public:
   static constexpr auto DEFAULT_SERVER_HOST = "localhost";
@@ -82,7 +81,7 @@ private:
   friend class MAVConnTCPServer;
   asio::io_service io_service;
   std::unique_ptr<asio::io_service::work> io_work;
-  std::thread io_thread;
+  std::jthread io_thread;
   std::atomic<bool> is_running;  //!< io_thread running
 
   asio::ip::tcp::socket socket;
@@ -114,8 +113,7 @@ private:
  *
  * @note IPv4 only
  */
-class MAVConnTCPServer : public MAVConnInterface,
-  public std::enable_shared_from_this<MAVConnTCPServer>
+class MAVConnTCPServer : public MAVConnInterface
 {
 public:
   static constexpr auto DEFAULT_BIND_HOST = "localhost";
@@ -149,7 +147,7 @@ public:
 private:
   asio::io_service io_service;
   std::unique_ptr<asio::io_service::work> io_work;
-  std::thread io_thread;
+  std::jthread io_thread;
 
   asio::ip::tcp::acceptor acceptor;
   asio::ip::tcp::endpoint bind_ep;

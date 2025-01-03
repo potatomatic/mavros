@@ -33,8 +33,7 @@ namespace mavconn
 /**
  * @brief Serial interface
  */
-class MAVConnSerial : public MAVConnInterface,
-  public std::enable_shared_from_this<MAVConnSerial>
+class MAVConnSerial : public MAVConnInterface
 {
 public:
   static constexpr auto DEFAULT_DEVICE = "/dev/ttyACM0";
@@ -67,7 +66,7 @@ public:
 
 private:
   asio::io_service io_service;
-  std::thread io_thread;
+  std::jthread io_thread;
   asio::serial_port serial_dev;
 
   std::atomic<bool> tx_in_progress;
