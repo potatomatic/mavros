@@ -129,7 +129,7 @@ void MAVConnTCPClient::client_connected(size_t server_channel)
     server_channel, conn_id, to_string_ss(server_ep).c_str());
 
   // start recv
-  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_recv, shared_from_this()));
+  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_recv, this));
 }
 
 MAVConnTCPClient::~MAVConnTCPClient()
@@ -155,28 +155,24 @@ void MAVConnTCPClient::connect(
   io_service.post(std::bind(&MAVConnTCPClient::do_recv, this));
 
   // run io_service for async io
-  io_thread = std::thread(
-    [this]() {
-      is_running = true;
-      utils::set_this_thread_name("mtcp%zu", conn_id);
-      try {
-        io_service.run();
-      } catch (std::exception & ex) {
-        CONSOLE_BRIDGE_logError(PFXd "io_service execption: %s", conn_id, ex.what());
+  io_thread = std::jthread {
+      [this]() {
+        is_running = true;
+        utils::set_this_thread_name("mtcp%zu", conn_id);
+        try {
+          io_service.run();
+        } catch (std::exception & ex) {
+          CONSOLE_BRIDGE_logError(PFXd "io_service execption: %s", conn_id, ex.what());
+        }
+        is_running = false;
       }
-      is_running = false;
-    });
+    };
 }
 
 void MAVConnTCPClient::stop()
 {
   io_work.reset();
   io_service.stop();
-
-  if (io_thread.joinable()) {
-    io_thread.join();
-  }
-
   io_service.reset();
 }
 
@@ -197,10 +193,7 @@ void MAVConnTCPClient::close()
     socket.close();
   }
 
-  // Stop io_service if the thread is not the io_thread (else exception "resource deadlock avoided")
-  if (std::this_thread::get_id() != io_thread.get_id()) {
-    stop();
-  }
+  stop();
 
   if (port_closed_cb) {
     port_closed_cb();
@@ -223,7 +216,7 @@ void MAVConnTCPClient::send_bytes(const uint8_t * bytes, size_t length)
 
     tx_q.emplace_back(bytes, length);
   }
-  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, shared_from_this(), true));
+  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, this, true));
 }
 
 void MAVConnTCPClient::send_message(const mavlink_message_t * message)
@@ -246,7 +239,7 @@ void MAVConnTCPClient::send_message(const mavlink_message_t * message)
 
     tx_q.emplace_back(message);
   }
-  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, shared_from_this(), true));
+  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, this, true));
 }
 
 void MAVConnTCPClient::send_message(const mavlink::Message & message, const uint8_t source_compid)
@@ -267,7 +260,7 @@ void MAVConnTCPClient::send_message(const mavlink::Message & message, const uint
 
     tx_q.emplace_back(message, get_status_p(), sys_id, source_compid);
   }
-  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, shared_from_this(), true));
+  GET_IO_SERVICE(socket).post(std::bind(&MAVConnTCPClient::do_send, this, true));
 }
 
 void MAVConnTCPClient::do_recv()
@@ -275,18 +268,17 @@ void MAVConnTCPClient::do_recv()
   if (is_destroying) {
     return;
   }
-  auto sthis = shared_from_this();
   socket.async_receive(
     buffer(rx_buf),
-    [sthis](error_code error, size_t bytes_transferred) {
+    [this] (error_code error, size_t bytes_transferred) {
       if (error) {
-        CONSOLE_BRIDGE_logError(PFXd "receive: %s", sthis->conn_id, error.message().c_str());
-        sthis->close();
+        CONSOLE_BRIDGE_logError(PFXd "receive: %s", conn_id, error.message().c_str());
+        close();
         return;
       }
 
-      sthis->parse_buffer(PFX, sthis->rx_buf.data(), sthis->rx_buf.size(), bytes_transferred);
-      sthis->do_recv();
+      parse_buffer(PFX, rx_buf.data(), rx_buf.size(), bytes_transferred);
+      do_recv();
     });
 }
 
@@ -302,36 +294,35 @@ void MAVConnTCPClient::do_send(bool check_tx_state)
   }
 
   tx_in_progress = true;
-  auto sthis = shared_from_this();
   auto & buf_ref = tx_q.front();
   socket.async_send(
     buffer(buf_ref.dpos(), buf_ref.nbytes()),
-    [sthis, &buf_ref](error_code error, size_t bytes_transferred) {
+    [this, &buf_ref] (error_code error, size_t bytes_transferred) {
       assert(ssize_t(bytes_transferred) <= buf_ref.len);
 
       if (error) {
-        CONSOLE_BRIDGE_logError(PFXd "send: %s", sthis->conn_id, error.message().c_str());
-        sthis->close();
+        CONSOLE_BRIDGE_logError(PFXd "send: %s", conn_id, error.message().c_str());
+        close();
         return;
       }
 
-      sthis->iostat_tx_add(bytes_transferred);
-      lock_guard lock(sthis->mutex);
+      iostat_tx_add(bytes_transferred);
+      lock_guard lock(mutex);
 
-      if (sthis->tx_q.empty()) {
-        sthis->tx_in_progress = false;
+      if (tx_q.empty()) {
+        tx_in_progress = false;
         return;
       }
 
       buf_ref.pos += bytes_transferred;
       if (buf_ref.nbytes() == 0) {
-        sthis->tx_q.pop_front();
+        tx_q.pop_front();
       }
 
-      if (!sthis->tx_q.empty()) {
-        sthis->do_send(false);
+      if (!tx_q.empty()) {
+        do_send(false);
       } else {
-        sthis->tx_in_progress = false;
+        tx_in_progress = false;
       }
     });
 }
@@ -379,7 +370,7 @@ void MAVConnTCPServer::connect(
   io_service.post(std::bind(&MAVConnTCPServer::do_accept, this));
 
   // run io_service for async io
-  io_thread = std::thread(
+  io_thread = std::jthread(
     [this]() {
       utils::set_this_thread_name("mtcps%zu", conn_id);
       io_service.run();
@@ -400,10 +391,6 @@ void MAVConnTCPServer::close()
 
   io_service.stop();
   acceptor.close();
-
-  if (io_thread.joinable()) {
-    io_thread.join();
-  }
 
   if (port_closed_cb) {
     port_closed_cb();
@@ -487,30 +474,30 @@ void MAVConnTCPServer::do_accept()
   if (is_destroying) {
     return;
   }
-  auto sthis = shared_from_this();
+
   auto acceptor_client = std::make_shared<MAVConnTCPClient>(sys_id, comp_id, io_service);
   acceptor.async_accept(
     acceptor_client->socket,
     acceptor_client->server_ep,
-    [sthis, acceptor_client](error_code error) {
+    [this, acceptor_client] (error_code error) {
       if (error) {
-        CONSOLE_BRIDGE_logError(PFXd "accept: %s", sthis->conn_id, error.message().c_str());
-        sthis->close();
+        CONSOLE_BRIDGE_logError(PFXd "accept: %s", conn_id, error.message().c_str());
+        close();
         return;
       }
 
       {
-        lock_guard lock(sthis->mutex);
+        lock_guard lock {mutex};
 
-        std::weak_ptr<MAVConnTCPClient> weak_client{acceptor_client};
-        acceptor_client->message_received_cb = sthis->message_received_cb;
-        acceptor_client->port_closed_cb = [weak_client, sthis]() {
-          sthis->client_closed(weak_client);
+        std::weak_ptr<MAVConnTCPClient> weak_client {acceptor_client};
+        acceptor_client->message_received_cb = message_received_cb;
+        acceptor_client->port_closed_cb = [weak_client, this]() {
+          client_closed(weak_client);
         };
-        acceptor_client->client_connected(sthis->conn_id);
+        acceptor_client->client_connected(conn_id);
 
-        sthis->client_list.push_back(acceptor_client);
-        sthis->do_accept();
+        client_list.push_back(acceptor_client);
+        do_accept();
       }
     });
 }
