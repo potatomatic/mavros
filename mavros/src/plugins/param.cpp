@@ -102,7 +102,16 @@ public:
   {
   }
 
-  void set_value(mavlink::common::msg::PARAM_VALUE & pmsg)
+  void set_value(mavlink::common::msg::PARAM_VALUE const& pmsg, mavlink::minimal::MAV_AUTOPILOT autopilot)
+  {
+    if (autopilot == mavlink::minimal::MAV_AUTOPILOT::ARDUPILOTMEGA)
+      set_value_apm_quirk(pmsg);
+    else
+      set_value(pmsg);
+  }
+
+private:
+  void set_value(mavlink::common::msg::PARAM_VALUE const& pmsg)
   {
     mavlink::mavlink_param_union_t uv;
     uv.param_float = pmsg.param_value;
@@ -169,7 +178,7 @@ public:
   /**
    * Variation of set_value with quirks for ArduPilotMega
    */
-  void set_value_apm_quirk(mavlink::common::msg::PARAM_VALUE & pmsg)
+  void set_value_apm_quirk(mavlink::common::msg::PARAM_VALUE const& pmsg)
   {
     int32_t int_tmp;
     float float_tmp;
@@ -222,6 +231,7 @@ public:
     }
   }
 
+public:
   //! Make PARAM_SET message. Set target ids manually!
   PARAM_SET to_param_set() const
   {
@@ -474,12 +484,10 @@ public:
       std::bind(&ParamPlugin::list_parameters_cb, this, _1, _2), qos);
 
     schedule_timer =
-      node->create_wall_timer(BOOTUP_TIME, std::bind(&ParamPlugin::schedule_cb, this));
-    schedule_timer->cancel();
+      node->create_wall_timer(BOOTUP_TIME, std::bind(&ParamPlugin::schedule_cb, this), nullptr, false);
 
     timeout_timer =
-      node->create_wall_timer(PARAM_TIMEOUT, std::bind(&ParamPlugin::timeout_cb, this));
-    timeout_timer->cancel();
+      node->create_wall_timer(PARAM_TIMEOUT, std::bind(&ParamPlugin::timeout_cb, this), nullptr, false);
 
     enable_connection_cb();
   }
@@ -542,6 +550,39 @@ private:
   std::mutex list_cond_mutex;
   std::condition_variable list_receiving;
 
+  void update_parameter(Parameter & p, mavlink::common::msg::PARAM_VALUE const& pmsg, bool is_new)
+  {
+    p.stamp = node->now();
+    p.set_value(pmsg, uas->get_autopilot());
+
+    param_event_pub->publish(p.to_event_msg());
+    {
+      rcl_interfaces::msg::ParameterEvent evt{};
+      evt.stamp = p.stamp;
+      evt.node = node->get_fully_qualified_name();
+      if (is_new) {
+        evt.new_parameters.push_back(p.to_parameter_msg());
+      } else {
+        evt.changed_parameters.push_back(p.to_parameter_msg());
+      }
+
+      std_event_pub->publish(evt);
+    }
+
+    // check that ack required
+    auto set_it = set_parameters.find(p.param_id);
+    if (set_it != set_parameters.end()) {
+      set_it->second->promise.set_value({true, p});
+    }
+
+    RCLCPP_WARN_STREAM_EXPRESSION(
+      get_logger(), ((p.param_index != pmsg.param_index &&
+      pmsg.param_index != UINT16_MAX) ||
+      p.param_count != pmsg.param_count),
+      "PR: Param " << p.to_string() << " different index: " << pmsg.param_index << "/" <<
+        pmsg.param_count);
+  };
+
   /* -*- message handlers -*- */
 
   void handle_param_value(
@@ -554,58 +595,21 @@ private:
     auto lg = get_logger();
     auto param_id = mavlink::to_string(pmsg.param_id);
 
-    auto update_parameter = [this, &pmsg](Parameter & p, bool is_new) {
-        p.stamp = node->now();
-        if (uas->is_ardupilotmega()) {
-          p.set_value_apm_quirk(pmsg);
-        } else {
-          p.set_value(pmsg);
-        }
-
-        param_event_pub->publish(p.to_event_msg());
-        {
-          rcl_interfaces::msg::ParameterEvent evt{};
-          evt.stamp = p.stamp;
-          evt.node = node->get_fully_qualified_name();
-          if (is_new) {
-            evt.new_parameters.push_back(p.to_parameter_msg());
-          } else {
-            evt.changed_parameters.push_back(p.to_parameter_msg());
-          }
-
-          std_event_pub->publish(evt);
-        }
-
-        // check that ack required
-        auto set_it = set_parameters.find(p.param_id);
-        if (set_it != set_parameters.end()) {
-          set_it->second->promise.set_value({true, p});
-        }
-
-        RCLCPP_WARN_STREAM_EXPRESSION(
-          get_logger(), ((p.param_index != pmsg.param_index &&
-          pmsg.param_index != UINT16_MAX) ||
-          p.param_count != pmsg.param_count),
-          "PR: Param " << p.to_string() << " different index: " << pmsg.param_index << "/" <<
-            pmsg.param_count);
-      };
-
     // search
     auto param_it = parameters.find(param_id);
     if (param_it != parameters.end()) {
       // parameter exists
       auto & p = param_it->second;
 
-      update_parameter(p, false);
+      update_parameter(p, pmsg, false);
       RCLCPP_DEBUG_STREAM(lg, "PR: Update param " << p.to_string());
-
     } else {
       // insert new element
       auto pp =
         parameters.emplace(param_id, Parameter(param_id, pmsg.param_index, pmsg.param_count));
       auto & p = pp.first->second;
 
-      update_parameter(p, true);
+      update_parameter(p, pmsg, true);
       RCLCPP_DEBUG_STREAM(lg, "PR: New param " << p.to_string());
     }
 
@@ -743,6 +747,7 @@ private:
     } else {
       schedule_timer->cancel();
       clear_all_parameters();
+      go_idle();
     }
   }
 
