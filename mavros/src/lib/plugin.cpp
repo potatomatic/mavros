@@ -18,14 +18,9 @@
 
 using mavros::plugin::Plugin;
 
-namespace
+Plugin::Plugin(UASPtr uas, const std::string & subnode_name)
+: Plugin {uas, subnode_name, uas->get_node_options()}
 {
-  rclcpp::NodeOptions use_global_arguments(rclcpp::NodeOptions const& o, bool value)
-  {
-    rclcpp::NodeOptions result = o;
-    result.use_global_arguments(value);
-    return o;
-  }
 }
 
 Plugin::Plugin(
@@ -34,7 +29,7 @@ Plugin::Plugin(
 : uas(uas_),
   // node(std::dynamic_pointer_cast<rclcpp::Node>(uas_)->create_sub_node(subnode))  // https://github.com/ros2/rclcpp/issues/731
   node(rclcpp::Node::make_shared(subnode,
-    uas_->get_fully_qualified_name(), use_global_arguments(options, false)))
+    uas_->get_fully_qualified_name(), rclcpp::NodeOptions(options).use_global_arguments(false)))
 {
   RCLCPP_DEBUG_STREAM(uas->get_logger(), "Create plugin " << subnode
     << ", uas_->get_fully_qualified_name()=" << uas_->get_fully_qualified_name()

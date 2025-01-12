@@ -74,9 +74,11 @@ public:
   //! Subscriptions vector
   using Subscriptions = std::vector<HandlerInfo>;
 
+  explicit Plugin(UASPtr uas, const std::string & subnode_name);
+
   explicit Plugin(
     UASPtr uas, const std::string & subnode_name,
-    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+    const rclcpp::NodeOptions & options);
 
   virtual ~Plugin() = default;
 
