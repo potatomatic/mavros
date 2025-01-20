@@ -37,6 +37,7 @@ set(msg_files
   msg/AttitudeTarget.msg
   msg/CamIMUStamp.msg
   msg/CameraImageCaptured.msg
+  msg/CameraTrackingImageStatus.msg
   msg/CellularStatus.msg
   msg/CommandCode.msg
   msg/CompanionProcessStatus.msg
