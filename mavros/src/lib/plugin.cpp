@@ -19,7 +19,7 @@
 using mavros::plugin::Plugin;
 
 Plugin::Plugin(UASPtr uas, const std::string & subnode_name)
-: Plugin {uas, subnode_name, uas->get_node_options()}
+: Plugin {uas, subnode_name, uas->get_plugin_node_options()}
 {
 }
 

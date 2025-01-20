@@ -573,6 +573,9 @@ public:
   //! sets protocol version
   void set_protocol_version(mavconn::Protocol ver);
 
+  //! get node options for plugins
+  rclcpp::NodeOptions get_plugin_node_options() const;
+
 private:
   friend class TestUAS;
 

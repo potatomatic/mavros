@@ -428,7 +428,7 @@ class ParamPlugin : public plugin::Plugin
 {
 public:
   explicit ParamPlugin(plugin::UASPtr uas_)
-  : Plugin(uas_, "param", rclcpp::NodeOptions(uas_->get_node_options()).start_parameter_services(
+  : Plugin(uas_, "param", uas_->get_plugin_node_options().start_parameter_services(
         false).start_parameter_event_publisher(false)),
     BOOTUP_TIME(10s),
     LIST_TIMEOUT(30s),
